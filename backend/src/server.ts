@@ -1,10 +1,14 @@
 import Fastify from 'fastify';
 import { env } from './config/env';
+import { redirectRoutes } from './routes/redirect.routes';
+import { shortlinksRoutes } from './routes/shortlinks.routes';
 
 async function buildServer() {
   const app = Fastify({ logger: true });
 
   app.get('/health', async () => ({ status: 'ok' }));
+  app.register(redirectRoutes);
+  app.register(shortlinksRoutes, { prefix: '/api' });
 
   return app;
 }
