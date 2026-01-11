@@ -5,6 +5,7 @@ import { generateShortCode } from '../utils/shortCode';
 type CreateShortLinkBody = {
   originalUrl?: string;
   shortCode?: string;
+  label?: string;
   expiresAt?: string | null;
 };
 
@@ -62,6 +63,9 @@ export async function createShortLink(
     return;
   }
 
+  const labelInput = request.body?.label?.trim();
+  const label = labelInput ? labelInput.slice(0, 80) : null;
+
   const attempts = providedCode ? 1 : 3;
   for (let i = 0; i < attempts; i += 1) {
     const shortCode = providedCode ?? generateShortCode();
@@ -71,9 +75,10 @@ export async function createShortLink(
         user_id: userId,
         original_url: originalUrl,
         short_code: shortCode,
+        label,
         expires_at: expiresAt,
       })
-      .select('id, short_code, original_url, expires_at, click_count, created_at')
+      .select('id, short_code, original_url, expires_at, click_count, created_at, label')
       .single();
 
     if (!error) {
@@ -108,7 +113,7 @@ export async function listShortLinks(
 
   const { data, error } = await supabase
     .from('short_links')
-    .select('id, short_code, original_url, expires_at, click_count, created_at')
+    .select('id, short_code, original_url, expires_at, click_count, created_at, label')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 

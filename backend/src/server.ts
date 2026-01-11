@@ -1,10 +1,15 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { env } from './config/env';
 import { redirectRoutes } from './routes/redirect.routes';
 import { shortlinksRoutes } from './routes/shortlinks.routes';
 
 async function buildServer() {
   const app = Fastify({ logger: true });
+
+  await app.register(cors, {
+    origin: true,
+  });
 
   app.get('/health', async () => ({ status: 'ok' }));
   app.register(redirectRoutes);

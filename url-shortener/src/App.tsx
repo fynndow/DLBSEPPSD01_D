@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
 import { supabase } from './lib/supabaseClient';
 import './App.css';
 
@@ -10,25 +11,20 @@ type LinkItem = {
   shortCode: string;
   originalUrl: string;
   expiresLabel: string;
+  expiresAt: string | null;
+  label: string | null;
   clickCount: number;
 };
 
-const seedLinks: LinkItem[] = [
-  {
-    id: 'seed-1',
-    shortCode: 'demo123',
-    originalUrl: 'https://example.com',
-    expiresLabel: '01.01.1970',
-    clickCount: 12,
-  },
-  {
-    id: 'seed-2',
-    shortCode: 'hello77',
-    originalUrl: 'https://vite.dev',
-    expiresLabel: '31.12.2099',
-    clickCount: 3,
-  },
-];
+type ApiLink = {
+  id: string;
+  short_code: string;
+  original_url: string;
+  expires_at: string | null;
+  click_count: number;
+  label?: string | null;
+  created_at?: string;
+};
 
 const expiryOptions = [
   { value: '1', label: 'Default 1 Tag' },
@@ -37,8 +33,66 @@ const expiryOptions = [
   { value: 'never', label: 'Kein Ablaufdatum' },
 ];
 
-function generateLocalCode(length = 7) {
-  return Math.random().toString(36).slice(2, 2 + length);
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const ITEMS_PER_PAGE = 3;
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return 'kein Ablaufdatum';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'kein Ablaufdatum';
+  }
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}.${month}.${year}`;
+}
+
+function mapApiLink(link: ApiLink): LinkItem {
+  return {
+    id: link.id,
+    shortCode: link.short_code,
+    originalUrl: link.original_url,
+    expiresLabel: formatDate(link.expires_at),
+    expiresAt: link.expires_at,
+    label: link.label ?? null,
+    clickCount: link.click_count ?? 0,
+  };
+}
+
+function computeExpiresAt(option: string) {
+  if (option === 'never') {
+    return null;
+  }
+  const days = Number(option);
+  if (Number.isNaN(days)) {
+    return null;
+  }
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+function isActiveLink(link: LinkItem) {
+  if (!link.expiresAt) {
+    return true;
+  }
+  const time = Date.parse(link.expiresAt);
+  if (Number.isNaN(time)) {
+    return true;
+  }
+  return time > Date.now();
+}
+
+function matchesSearch(link: LinkItem, term: string) {
+  const normalized = term.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  const label = link.label?.toLowerCase() ?? '';
+  return label.includes(normalized) || link.shortCode.toLowerCase().includes(normalized);
 }
 
 function App() {
@@ -52,13 +106,24 @@ function App() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [targetUrl, setTargetUrl] = useState('');
-  const [shortCode, setShortCode] = useState('');
+  const [label, setLabel] = useState('');
   const [expiresIn, setExpiresIn] = useState(expiryOptions[0].value);
-  const [links, setLinks] = useState<LinkItem[]>(seedLinks);
-  const [activeLinkId, setActiveLinkId] = useState<string | null>(
-    seedLinks[0]?.id ?? null
-  );
+  const [links, setLinks] = useState<LinkItem[]>([]);
+  const [activeLinkId, setActiveLinkId] = useState<string | null>(null);
   const [linkMessage, setLinkMessage] = useState<string | null>(null);
+  const [linksLoading, setLinksLoading] = useState(false);
+  const [linksError, setLinksError] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -77,6 +142,62 @@ function App() {
       data.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setLinks([]);
+      setActiveLinkId(null);
+      return;
+    }
+
+    const fetchLinks = async () => {
+      setLinksLoading(true);
+      setLinksError(null);
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/shortlinks`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || 'Konnte Links nicht laden.');
+        }
+
+        const data = (await response.json()) as ApiLink[];
+        const mapped = data.map(mapApiLink);
+        setLinks(mapped);
+        setActiveLinkId((current) =>
+          mapped.some((link) => link.id === current) ? current : mapped[0]?.id ?? null
+        );
+      } catch (fetchError) {
+        setLinksError(
+          fetchError instanceof Error ? fetchError.message : 'Konnte Links nicht laden.'
+        );
+      } finally {
+        setLinksLoading(false);
+      }
+    };
+
+    fetchLinks();
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    if (links.length === 0) {
+      if (activeLinkId !== null) {
+        setActiveLinkId(null);
+      }
+      return;
+    }
+
+    const active = links.filter(isActiveLink);
+    const preferredId = active[0]?.id ?? links[0].id;
+    const activeIds = new Set(active.map((link) => link.id));
+    if (!activeLinkId || !activeIds.has(activeLinkId)) {
+      setActiveLinkId(preferredId);
+    }
+  }, [links, activeLinkId]);
 
   const isSignedIn = Boolean(session?.user);
   const userLabel = useMemo(() => {
@@ -122,9 +243,10 @@ function App() {
     setLoading(false);
   };
 
-  const handleCreateLink = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLinkMessage(null);
+    setLinksError(null);
 
     const trimmedUrl = targetUrl.trim();
     if (!trimmedUrl) {
@@ -139,27 +261,222 @@ function App() {
       return;
     }
 
-    const newCode = shortCode.trim() || generateLocalCode();
-    const expiresLabel =
-      expiryOptions.find((option) => option.value === expiresIn)?.label ?? 'Default 1 Tag';
+    if (!session?.access_token) {
+      setLinkMessage('Bitte zuerst einloggen.');
+      return;
+    }
 
-    const newLink: LinkItem = {
-      id: `local-${Date.now()}`,
-      shortCode: newCode,
-      originalUrl: trimmedUrl,
-      expiresLabel: expiresLabel.replace('Default ', ''),
-      clickCount: 0,
-    };
+    setLinksLoading(true);
+    try {
+      const payload = {
+        originalUrl: trimmedUrl,
+        label: label.trim() || undefined,
+        expiresAt: computeExpiresAt(expiresIn),
+      };
 
-    setLinks((prev) => [newLink, ...prev]);
-    setActiveLinkId(newLink.id);
-    setTargetUrl('');
-    setShortCode('');
-    setExpiresIn(expiryOptions[0].value);
-    setLinkMessage('Kurzlink erstellt (lokal).');
+      const response = await fetch(`${apiBaseUrl}/api/shortlinks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || 'Kurzlink konnte nicht erstellt werden.');
+      }
+
+      const data = (await response.json()) as ApiLink;
+      const mapped = mapApiLink(data);
+      setLinks((prev) => [mapped, ...prev]);
+      setActiveLinkId(mapped.id);
+      setTargetUrl('');
+      setLabel('');
+      setExpiresIn(expiryOptions[0].value);
+      setLinkMessage('Kurzlink erstellt.');
+    } catch (createError) {
+      setLinkMessage(
+        createError instanceof Error
+          ? createError.message
+          : 'Kurzlink konnte nicht erstellt werden.'
+      );
+    } finally {
+      setLinksLoading(false);
+    }
   };
 
   const activeLink = links.find((link) => link.id === activeLinkId);
+  const shortBaseUrl = import.meta.env.VITE_SHORT_BASE_URL || `${apiBaseUrl}/r`;
+  const shortUrl = activeLink ? `${shortBaseUrl}/${activeLink.shortCode}` : '';
+  const activeLinks = useMemo(() => links.filter(isActiveLink), [links]);
+  const expiredCount = links.length - activeLinks.length;
+  const filteredLinks = useMemo(
+    () => activeLinks.filter((link) => matchesSearch(link, searchTerm)),
+    [activeLinks, searchTerm]
+  );
+  const totalPages = Math.max(1, Math.ceil(filteredLinks.length / ITEMS_PER_PAGE));
+  const pageStart = (page - 1) * ITEMS_PER_PAGE;
+  const pageLinks = filteredLinks.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+
+  useEffect(() => {
+    if (!shortUrl) {
+      setQrDataUrl('');
+      return;
+    }
+    let isCurrent = true;
+    QRCode.toDataURL(shortUrl, {
+      width: 220,
+      margin: 1,
+      color: { dark: '#111111', light: '#f5f5f5' },
+    })
+      .then((dataUrl) => {
+        if (isCurrent) {
+          setQrDataUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setQrDataUrl('');
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [shortUrl]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    if (filteredLinks.length === 0) {
+      return;
+    }
+    if (!activeLinkId || !filteredLinks.some((link) => link.id === activeLinkId)) {
+      setActiveLinkId(filteredLinks[0].id);
+    }
+  }, [filteredLinks, activeLinkId]);
+
+  const handleShare = async () => {
+    if (!qrDataUrl) {
+      setShareError('Kein QR-Code vorhanden.');
+      setShareMessage(null);
+      return;
+    }
+
+    setShareError(null);
+    setShareMessage(null);
+
+    try {
+      const response = await fetch(qrDataUrl);
+      const blob = await response.blob();
+      const fileName = activeLink ? `qr-${activeLink.shortCode}.png` : 'qr-code.png';
+      const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'QR-Code' });
+        setShareMessage('QR-Code geteilt.');
+        return;
+      }
+
+      if (navigator.clipboard && 'write' in navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ [file.type]: blob })]);
+        setShareMessage('QR-Code kopiert.');
+        return;
+      }
+
+      const downloadLink = document.createElement('a');
+      downloadLink.href = URL.createObjectURL(blob);
+      downloadLink.download = fileName;
+      downloadLink.click();
+      URL.revokeObjectURL(downloadLink.href);
+      setShareMessage('QR-Code gespeichert.');
+    } catch {
+      setShareError('Konnte den QR-Code nicht teilen.');
+    }
+  };
+
+  const handleCopyLink = async (linkShortCode: string) => {
+    const linkUrl = `${shortBaseUrl}/${linkShortCode}`;
+    setCopyError(null);
+    setCopyMessage(null);
+    try {
+      await navigator.clipboard.writeText(linkUrl);
+      setCopyMessage('Link kopiert.');
+      window.setTimeout(() => {
+        setCopyMessage(null);
+      }, 2000);
+    } catch {
+      setCopyError('Konnte den Link nicht kopieren.');
+      window.setTimeout(() => {
+        setCopyError(null);
+      }, 2000);
+    }
+  };
+
+  const handleDeleteLink = async (linkId: string) => {
+    if (!session?.access_token) {
+      setDeleteError('Bitte zuerst einloggen.');
+      return false;
+    }
+
+    setDeleteError(null);
+    setDeleteMessage(null);
+    setLinksLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/shortlinks/${linkId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Loeschen fehlgeschlagen.');
+      }
+
+      setLinks((prev) => prev.filter((link) => link.id !== linkId));
+      setDeleteMessage('Link geloescht.');
+      return true;
+    } catch (deleteErr) {
+      setDeleteError(
+        deleteErr instanceof Error ? deleteErr.message : 'Loeschen fehlgeschlagen.'
+      );
+      return false;
+    } finally {
+      setLinksLoading(false);
+    }
+  };
+
+  const openDeleteModal = (linkId: string) => {
+    setPendingDeleteId(linkId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    setIsDeleteModalOpen(false);
+    setPendingDeleteId(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) {
+      return;
+    }
+    const success = await handleDeleteLink(pendingDeleteId);
+    if (success) {
+      closeDeleteModal();
+    }
+  };
 
   return (
     <div className="app">
@@ -273,11 +590,11 @@ function App() {
                   />
                 </label>
                 <label>
-                  <span>Eigener Kurzname (optional)</span>
+                  <span>Eigener Kurzname (nur fuer dich)</span>
                   <input
                     type="text"
-                    value={shortCode}
-                    onChange={(event) => setShortCode(event.target.value)}
+                    value={label}
+                    onChange={(event) => setLabel(event.target.value)}
                     placeholder="Beispiel"
                   />
                 </label>
@@ -299,34 +616,207 @@ function App() {
                 </button>
               </form>
               {linkMessage && <p className="status info">{linkMessage}</p>}
+              <div className="link-summary">
+                <div className="summary-header">Aktiver Link</div>
+                {activeLink ? (
+                  <>
+                    <p className="summary-url">{shortUrl}</p>
+                    <p className="summary-meta">
+                      {activeLink.label ? `${activeLink.label} - ` : ''}
+                      Ablaufdatum: {activeLink.expiresLabel} - counter: {activeLink.clickCount}
+                    </p>
+                  </>
+                ) : (
+                  <p className="status info">Noch kein Link ausgewaehlt.</p>
+                )}
+                <div className="summary-stats">
+                  <div>
+                    <span>Gesamt</span>
+                    <strong>{links.length}</strong>
+                  </div>
+                  <div>
+                    <span>Aktiv</span>
+                    <strong>{activeLinks.length}</strong>
+                  </div>
+                  <div>
+                    <span>Abgelaufen</span>
+                    <strong>{expiredCount}</strong>
+                  </div>
+                </div>
+              </div>
             </article>
 
             <article className="card">
-              <h2>Meine Links</h2>
+              <h2>Letzte aktive Links</h2>
+              {linksLoading && <p className="status info">Links werden geladen...</p>}
+              {linksError && (
+                <p className="status error" role="alert">
+                  {linksError}
+                </p>
+              )}
+              <div className="search-bar">
+                <label>
+                  <span>Suche nach Kurzname</span>
+                  <input
+                    type="search"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="z.B. kampagne-jan"
+                  />
+                </label>
+              </div>
               <div className="links-list">
-                {links.map((link) => (
-                  <button
-                    key={link.id}
-                    type="button"
-                    className={link.id === activeLinkId ? 'link-row active' : 'link-row'}
-                    onClick={() => setActiveLinkId(link.id)}
-                  >
-                    <div className="link-text">{link.originalUrl}</div>
-                    <div className="link-meta">
-                      {link.shortCode} - Ablaufdatum: {link.expiresLabel} - counter:{' '}
-                      {link.clickCount}
+                {filteredLinks.length === 0 && !linksLoading ? (
+                  <p className="status info">Keine aktiven Links vorhanden.</p>
+                ) : (
+                  pageLinks.map((link) => (
+                    <div
+                      key={link.id}
+                      className={link.id === activeLinkId ? 'link-row active' : 'link-row'}
+                      onClick={() => setActiveLinkId(link.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setActiveLinkId(link.id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="link-header">
+                      <div className="link-text">
+                        {shortBaseUrl}/{link.shortCode}
+                      </div>
+                      <div className="link-actions">
+                        <button
+                          type="button"
+                          className="copy-inline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCopyLink(link.shortCode);
+                          }}
+                        >
+                          Kopieren
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-inline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDeleteModal(link.id);
+                          }}
+                        >
+                          Loeschen
+                        </button>
+                      </div>
+                      </div>
+                      <div className="link-meta">
+                        {link.label ? `${link.label} - ` : ''}
+                        Ablaufdatum: {link.expiresLabel} - counter: {link.clickCount}
+                      </div>
                     </div>
+                  ))
+                )}
+              </div>
+              {copyMessage && <p className="status success">{copyMessage}</p>}
+              {copyError && (
+                <p className="status error" role="alert">
+                  {copyError}
+                </p>
+              )}
+              {deleteMessage && <p className="status success">{deleteMessage}</p>}
+              {deleteError && (
+                <p className="status error" role="alert">
+                  {deleteError}
+                </p>
+              )}
+              {filteredLinks.length > ITEMS_PER_PAGE ? (
+                <div className="pagination">
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    disabled={page === 1}
+                  >
+                    Zurueck
                   </button>
-                ))}
-              </div>
-              <div className="qr-box">
-                <p>QR-Code des ausgewaehlten links</p>
-                <span>{activeLink?.shortCode ?? '--'}</span>
-              </div>
+                  <span>
+                    Seite {page} von {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                    disabled={page === totalPages}
+                  >
+                    Weiter
+                  </button>
+                </div>
+              ) : null}
+              {expiredCount > 0 && !linksLoading ? (
+                <p className="status info">
+                  {expiredCount} Link(s) sind abgelaufen und werden ausgeblendet.
+                </p>
+              ) : null}
+              {activeLink ? (
+                <>
+                  <div className="qr-box">
+                    <p>QR-Code des ausgewaehlten links</p>
+                    {qrDataUrl ? (
+                      <img src={qrDataUrl} alt="QR Code" />
+                    ) : (
+                      <span>{activeLink.shortCode}</span>
+                    )}
+                  </div>
+                  <div className="share-actions">
+                    <button
+                      className="share-button"
+                      type="button"
+                      onClick={handleShare}
+                      disabled={!qrDataUrl}
+                    >
+                      QR-Code teilen
+                    </button>
+                    {shareMessage && <p className="status success">{shareMessage}</p>}
+                    {shareError && (
+                      <p className="status error" role="alert">
+                        {shareError}
+                      </p>
+                    )}
+                  </div>
+                </>
+              ) : null}
             </article>
           </section>
         </main>
       )}
+      {isDeleteModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeDeleteModal}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="delete-modal-title">Link wirklich loeschen?</h3>
+            <p>Dieser Schritt kann nicht rueckgaengig gemacht werden.</p>
+            <p className="modal-link">
+              {pendingDeleteId
+                ? `${shortBaseUrl}/${
+                    links.find((link) => link.id === pendingDeleteId)?.shortCode ?? ''
+                  }`
+                : ''}
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="modal-button ghost" onClick={closeDeleteModal}>
+                Abbrechen
+              </button>
+              <button type="button" className="modal-button danger" onClick={confirmDelete}>
+                Loeschen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
