@@ -5,6 +5,7 @@ import { supabase } from './lib/supabaseClient';
 import './App.css';
 
 type Mode = 'login' | 'register';
+type View = 'dashboard' | 'profile';
 
 type LinkItem = {
   id: string;
@@ -104,6 +105,14 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [view, setView] = useState<View>('dashboard');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePassword, setProfilePassword] = useState('');
+  const [profilePasswordConfirm, setProfilePasswordConfirm] = useState('');
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [isAccountDeleteModalOpen, setIsAccountDeleteModalOpen] = useState(false);
 
   const [targetUrl, setTargetUrl] = useState('');
   const [label, setLabel] = useState('');
@@ -142,6 +151,12 @@ function App() {
       data.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (session?.user?.email) {
+      setProfileEmail(session.user.email);
+    }
+  }, [session?.user?.email]);
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -200,6 +215,11 @@ function App() {
   }, [links, activeLinkId]);
 
   const isSignedIn = Boolean(session?.user);
+  useEffect(() => {
+    if (!isSignedIn) {
+      setView('dashboard');
+    }
+  }, [isSignedIn]);
   const userLabel = useMemo(() => {
     const metadataName = session?.user.user_metadata?.name;
     return metadataName || session?.user.email || 'User';
@@ -208,6 +228,11 @@ function App() {
   const resetStatus = () => {
     setError(null);
     setMessage(null);
+  };
+
+  const resetProfileStatus = () => {
+    setProfileError(null);
+    setProfileMessage(null);
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -227,7 +252,7 @@ function App() {
     if (result.error) {
       setError(result.error.message);
     } else if (mode === 'register') {
-      setMessage('Registrierung erfolgreich. Bitte pruefe deine E-Mail.');
+      setMessage('Registrierung erfolgreich. Bitte prüfe deine E-Mail.');
     }
 
     setLoading(false);
@@ -241,6 +266,90 @@ function App() {
       setError(signOutError.message);
     }
     setLoading(false);
+  };
+
+  const handleUpdateEmail = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profileEmail.trim()) {
+      setProfileError('Bitte eine gültige E-Mail eingeben.');
+      return;
+    }
+    resetProfileStatus();
+    setProfileLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({
+      email: profileEmail.trim(),
+    });
+    if (updateError) {
+      setProfileError(updateError.message);
+    } else {
+      setProfileMessage('E-Mail-Update angefragt. Bitte bestätigen.');
+    }
+    setProfileLoading(false);
+  };
+
+  const handleUpdatePassword = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profilePassword.trim()) {
+      setProfileError('Bitte ein neues Passwort eingeben.');
+      return;
+    }
+    if (profilePassword !== profilePasswordConfirm) {
+      setProfileError('Passwörter stimmen nicht überein.');
+      return;
+    }
+    resetProfileStatus();
+    setProfileLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: profilePassword,
+    });
+    if (updateError) {
+      setProfileError(updateError.message);
+    } else {
+      setProfileMessage('Passwort aktualisiert.');
+      setProfilePassword('');
+      setProfilePasswordConfirm('');
+    }
+    setProfileLoading(false);
+  };
+
+  const openAccountDeleteModal = () => {
+    setIsAccountDeleteModalOpen(true);
+  };
+
+  const closeAccountDeleteModal = () => {
+    setIsAccountDeleteModalOpen(false);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!session?.access_token) {
+      setProfileError('Bitte zuerst einloggen.');
+      return;
+    }
+    resetProfileStatus();
+    setProfileLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/account`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Konto konnte nicht gelöscht werden.');
+      }
+      await supabase.auth.signOut();
+      setProfileMessage('Konto gelöscht.');
+      closeAccountDeleteModal();
+    } catch (accountError) {
+      setProfileError(
+        accountError instanceof Error
+          ? accountError.message
+          : 'Konto konnte nicht gelöscht werden.'
+      );
+    } finally {
+      setProfileLoading(false);
+    }
   };
 
   const handleCreateLink = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -257,7 +366,7 @@ function App() {
     try {
       new URL(trimmedUrl);
     } catch {
-      setLinkMessage('Die URL ist ungueltig.');
+      setLinkMessage('Die URL ist ungültig.');
       return;
     }
 
@@ -442,15 +551,15 @@ function App() {
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || 'Loeschen fehlgeschlagen.');
+        throw new Error(payload?.error || 'Löschen fehlgeschlagen.');
       }
 
       setLinks((prev) => prev.filter((link) => link.id !== linkId));
-      setDeleteMessage('Link geloescht.');
+      setDeleteMessage('Link gelöscht.');
       return true;
     } catch (deleteErr) {
       setDeleteError(
-        deleteErr instanceof Error ? deleteErr.message : 'Loeschen fehlgeschlagen.'
+        deleteErr instanceof Error ? deleteErr.message : 'Löschen fehlgeschlagen.'
       );
       return false;
     } finally {
@@ -510,8 +619,8 @@ function App() {
               <h1>{mode === 'login' ? 'Logge dich ein' : 'Registriere dich'}</h1>
               <p>
                 {mode === 'login'
-                  ? 'Logge dich ein um deine Links zu kuerzen!'
-                  : 'Registriere dich um deine Links zu kuerzen!'}
+                  ? 'Logge dich ein um deine Links zu kürzen!'
+                  : 'Registriere dich um deine Links zu kürzen!'}
               </p>
             </div>
 
@@ -566,18 +675,34 @@ function App() {
       ) : (
         <main className="dashboard">
           <header className="topbar">
-            <button className="chip" type="button">
-              Dashboard
-            </button>
+            <div className="topbar-left">
+              <button
+                className={view === 'dashboard' ? 'chip active' : 'chip'}
+                type="button"
+                onClick={() => setView('dashboard')}
+              >
+                Dashboard
+              </button>
+              <button
+                className={view === 'profile' ? 'chip active' : 'chip'}
+                type="button"
+                onClick={() => setView('profile')}
+              >
+                Profil
+              </button>
+            </div>
             <div className="greeting">Hallo {userLabel}!</div>
-            <button className="chip" type="button" onClick={handleSignOut}>
-              Abmelden
-            </button>
+            <div className="topbar-right">
+              <button className="chip" type="button" onClick={handleSignOut}>
+                Abmelden
+              </button>
+            </div>
           </header>
 
-          <section className="dashboard-grid">
+          {view === 'dashboard' ? (
+            <section className="dashboard-grid">
             <article className="card">
-              <h2>Verkuerzen Sie hier Ihren Link</h2>
+              <h2>Verkürzen Sie hier Ihren Link</h2>
               <form className="link-form" onSubmit={handleCreateLink}>
                 <label>
                   <span>Ziel-URL</span>
@@ -590,7 +715,7 @@ function App() {
                   />
                 </label>
                 <label>
-                  <span>Eigener Kurzname (nur fuer dich)</span>
+                  <span>Eigener Kurzname (nur für dich)</span>
                   <input
                     type="text"
                     value={label}
@@ -627,7 +752,7 @@ function App() {
                     </p>
                   </>
                 ) : (
-                  <p className="status info">Noch kein Link ausgewaehlt.</p>
+                  <p className="status info">Noch kein Link ausgewählt.</p>
                 )}
                 <div className="summary-stats">
                   <div>
@@ -684,31 +809,31 @@ function App() {
                       tabIndex={0}
                     >
                       <div className="link-header">
-                      <div className="link-text">
-                        {shortBaseUrl}/{link.shortCode}
-                      </div>
-                      <div className="link-actions">
-                        <button
-                          type="button"
-                          className="copy-inline"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleCopyLink(link.shortCode);
-                          }}
-                        >
-                          Kopieren
-                        </button>
-                        <button
-                          type="button"
-                          className="delete-inline"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openDeleteModal(link.id);
-                          }}
-                        >
-                          Loeschen
-                        </button>
-                      </div>
+                        <div className="link-text">
+                          {shortBaseUrl}/{link.shortCode}
+                        </div>
+                        <div className="link-actions">
+                          <button
+                            type="button"
+                            className="copy-inline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleCopyLink(link.shortCode);
+                            }}
+                          >
+                            Kopieren
+                          </button>
+                          <button
+                            type="button"
+                            className="delete-inline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openDeleteModal(link.id);
+                            }}
+                          >
+                          Löschen
+                          </button>
+                        </div>
                       </div>
                       <div className="link-meta">
                         {link.label ? `${link.label} - ` : ''}
@@ -737,7 +862,7 @@ function App() {
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={page === 1}
                   >
-                    Zurueck
+                    Zurück
                   </button>
                   <span>
                     Seite {page} von {totalPages}
@@ -759,7 +884,7 @@ function App() {
               {activeLink ? (
                 <>
                   <div className="qr-box">
-                    <p>QR-Code des ausgewaehlten links</p>
+                    <p>QR-Code des ausgewählten links</p>
                     {qrDataUrl ? (
                       <img src={qrDataUrl} alt="QR Code" />
                     ) : (
@@ -786,6 +911,88 @@ function App() {
               ) : null}
             </article>
           </section>
+          ) : (
+            <section className="profile-grid">
+              <article className="card">
+                <h2>Profil-Einstellungen</h2>
+                <p className="profile-note">
+                  Verwalte deine Login-Daten und dein Konto.
+                </p>
+                <div className="profile-section">
+                  <h3>E-Mail ändern</h3>
+                  <form className="profile-form" onSubmit={handleUpdateEmail}>
+                    <label>
+                      <span>Neue E-Mail</span>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        value={profileEmail}
+                        onChange={(event) => setProfileEmail(event.target.value)}
+                        placeholder="name@mail.com"
+                        required
+                      />
+                    </label>
+                    <button className="profile-button" type="submit" disabled={profileLoading}>
+                      E-Mail speichern
+                    </button>
+                  </form>
+                </div>
+
+                <div className="profile-section">
+                  <h3>Passwort ändern</h3>
+                  <form className="profile-form" onSubmit={handleUpdatePassword}>
+                    <label>
+                      <span>Neues Passwort</span>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        value={profilePassword}
+                        onChange={(event) => setProfilePassword(event.target.value)}
+                        placeholder="mind. 8 Zeichen"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Passwort bestätigen</span>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        value={profilePasswordConfirm}
+                        onChange={(event) => setProfilePasswordConfirm(event.target.value)}
+                        placeholder="Passwort wiederholen"
+                        required
+                      />
+                    </label>
+                    <button className="profile-button" type="submit" disabled={profileLoading}>
+                      Passwort speichern
+                    </button>
+                  </form>
+                </div>
+
+                <div className="profile-section danger-zone">
+                  <h3>Konto löschen</h3>
+                  <p>
+                    Dein Konto und alle Links werden dauerhaft entfernt.
+                  </p>
+                  <button
+                    className="profile-button danger"
+                    type="button"
+                    onClick={openAccountDeleteModal}
+                    disabled={profileLoading}
+                  >
+                    Konto löschen
+                  </button>
+                </div>
+
+                {profileMessage && <p className="status success">{profileMessage}</p>}
+                {profileError && (
+                  <p className="status error" role="alert">
+                    {profileError}
+                  </p>
+                )}
+              </article>
+            </section>
+          )}
         </main>
       )}
       {isDeleteModalOpen ? (
@@ -797,8 +1004,8 @@ function App() {
             aria-labelledby="delete-modal-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 id="delete-modal-title">Link wirklich loeschen?</h3>
-            <p>Dieser Schritt kann nicht rueckgaengig gemacht werden.</p>
+            <h3 id="delete-modal-title">Link wirklich löschen?</h3>
+            <p>Dieser Schritt kann nicht rückgängig gemacht werden.</p>
             <p className="modal-link">
               {pendingDeleteId
                 ? `${shortBaseUrl}/${
@@ -811,7 +1018,37 @@ function App() {
                 Abbrechen
               </button>
               <button type="button" className="modal-button danger" onClick={confirmDelete}>
-                Loeschen
+                Löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isAccountDeleteModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeAccountDeleteModal}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="account-delete-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="account-delete-title">Konto wirklich löschen?</h3>
+            <p>Alle deine Links werden entfernt. Dieser Schritt ist endgültig.</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="modal-button ghost"
+                onClick={closeAccountDeleteModal}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                className="modal-button danger"
+                onClick={handleDeleteAccount}
+              >
+                Konto löschen
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { env } from './config/env';
+import { accountRoutes } from './routes/account.routes';
 import { redirectRoutes } from './routes/redirect.routes';
 import { shortlinksRoutes } from './routes/shortlinks.routes';
 
@@ -13,6 +14,7 @@ async function buildServer() {
 
   app.get('/health', async () => ({ status: 'ok' }));
   app.register(redirectRoutes);
+  app.register(accountRoutes, { prefix: '/api' });
   app.register(shortlinksRoutes, { prefix: '/api' });
 
   return app;

@@ -156,6 +156,16 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.topbar-left {
+  display: inline-flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.topbar-right {
+  justify-self: end;
+}
+
 .greeting {
   text-align: center;
   padding: 0.6rem 1rem;
@@ -176,14 +186,26 @@
   cursor: pointer;
 }
 
-.topbar .chip:last-child {
-  justify-self: end;
+.chip.active {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2rem;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.profile-grid .card {
+  min-height: auto;
 }
 
 .card {
@@ -207,6 +229,83 @@
 .link-form {
   display: grid;
   gap: 1.1rem;
+}
+
+.profile-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.profile-section {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.profile-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.profile-section h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-strong);
+}
+
+.profile-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.profile-form label {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: rgba(245, 245, 245, 0.82);
+}
+
+.profile-form input {
+  border-radius: 12px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--text-strong);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.95rem;
+}
+
+.profile-form input:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+.profile-button {
+  justify-self: flex-start;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-strong);
+  padding: 0.55rem 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.profile-button.danger {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+}
+
+.danger-zone p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .link-summary {
@@ -514,8 +613,8 @@
     text-align: center;
   }
 
-  .topbar .chip,
-  .topbar .chip:last-child {
+  .topbar-left,
+  .topbar-right {
     justify-self: center;
   }
 }
