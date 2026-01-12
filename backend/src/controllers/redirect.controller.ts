@@ -17,7 +17,7 @@ export async function redirectShortCode(
 
   const { data, error } = await supabase
     .from('short_links')
-    .select('id, original_url, expires_at')
+    .select('id, original_url, expires_at, click_count')
     .eq('short_code', shortCode)
     .maybeSingle();
 
@@ -42,11 +42,29 @@ export async function redirectShortCode(
   const ipAddress = request.ip;
   const userAgent = request.headers['user-agent'] ?? null;
 
-  await supabase.from('clicks').insert({
-    short_link_id: data.id,
-    ip_address: ipAddress,
-    user_agent: userAgent,
-  });
+  const nextCount = (data.click_count ?? 0) + 1;
+  const [countResult, clickResult] = await Promise.all([
+    supabase
+      .from('short_links')
+      .update({ click_count: nextCount })
+      .eq('id', data.id),
+    supabase.from('clicks').insert({
+      short_link_id: data.id,
+      ip_address: ipAddress,
+      user_agent: userAgent,
+    }),
+  ]);
+
+  if (countResult.error || clickResult.error) {
+    request.log.error(
+      {
+        countError: countResult.error?.message,
+        clickError: clickResult.error?.message,
+        shortLinkId: data.id,
+      },
+      'Failed to record click data'
+    );
+  }
 
   reply.redirect(data.original_url);
 }

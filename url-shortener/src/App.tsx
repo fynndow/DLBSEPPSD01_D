@@ -34,7 +34,10 @@ const expiryOptions = [
   { value: 'never', label: 'Kein Ablaufdatum' },
 ];
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const runtimeHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const runtimeProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+const apiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL || `${runtimeProtocol}//${runtimeHost}:3000`;
 const ITEMS_PER_PAGE = 3;
 
 function formatDate(value: string | null) {
@@ -96,11 +99,19 @@ function matchesSearch(link: LinkItem, term: string) {
   return label.includes(normalized) || link.shortCode.toLowerCase().includes(normalized);
 }
 
+function mapAuthErrorMessage(message: string) {
+  if (message.includes('Unable to validate email address: invalid format')) {
+    return 'Bitte eine gültige E-Mail-Adresse eingeben.';
+  }
+  return message;
+}
+
 function App() {
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,6 +251,47 @@ function App() {
     resetStatus();
     setLoading(true);
 
+    const trimmedEmail = email.trim();
+    const trimmedName = name.trim();
+    const trimmedPassword = password.trim();
+    const trimmedConfirm = passwordConfirm.trim();
+
+    if (!trimmedEmail) {
+      setError('Bitte eine E-Mail-Adresse eingeben.');
+      setLoading(false);
+      return;
+    }
+
+    if (!trimmedEmail.includes('@')) {
+      setError('Bitte eine gültige E-Mail eingeben.');
+      setLoading(false);
+      return;
+    }
+
+    if (!trimmedPassword) {
+      setError('Bitte ein Passwort eingeben.');
+      setLoading(false);
+      return;
+    }
+
+    if (mode === 'register') {
+      if (!trimmedName) {
+        setError('Bitte einen Namen eingeben.');
+        setLoading(false);
+        return;
+      }
+      if (!trimmedConfirm) {
+        setError('Bitte das Passwort bestätigen.');
+        setLoading(false);
+        return;
+      }
+      if (trimmedPassword !== trimmedConfirm) {
+        setError('Die Passwörter stimmen nicht überein.');
+        setLoading(false);
+        return;
+      }
+    }
+
     const authPayload = { email, password };
     const result =
       mode === 'register'
@@ -250,7 +302,7 @@ function App() {
         : await supabase.auth.signInWithPassword(authPayload);
 
     if (result.error) {
-      setError(result.error.message);
+      setError(mapAuthErrorMessage(result.error.message));
     } else if (mode === 'register') {
       setMessage('Registrierung erfolgreich. Bitte prüfe deine E-Mail.');
     }
@@ -519,7 +571,22 @@ function App() {
     setCopyError(null);
     setCopyMessage(null);
     try {
-      await navigator.clipboard.writeText(linkUrl);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(linkUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = linkUrl;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!ok) {
+          throw new Error('copy failed');
+        }
+      }
       setCopyMessage('Link kopiert.');
       window.setTimeout(() => {
         setCopyMessage(null);
@@ -599,6 +666,7 @@ function App() {
                 onClick={() => {
                   resetStatus();
                   setMode('login');
+                  setPasswordConfirm('');
                 }}
               >
                 Login
@@ -609,6 +677,7 @@ function App() {
                 onClick={() => {
                   resetStatus();
                   setMode('register');
+                  setPasswordConfirm('');
                 }}
               >
                 Registrieren
@@ -624,7 +693,7 @@ function App() {
               </p>
             </div>
 
-            <form className="auth-form" onSubmit={handleSubmit}>
+            <form className="auth-form" onSubmit={handleSubmit} noValidate>
               {mode === 'register' && (
                 <label>
                   <span>Name</span>
@@ -659,6 +728,19 @@ function App() {
                   required
                 />
               </label>
+              {mode === 'register' && (
+                <label>
+                  <span>Passwort bestätigen</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordConfirm}
+                    onChange={(event) => setPasswordConfirm(event.target.value)}
+                    placeholder="Passwort wiederholen"
+                    required
+                  />
+                </label>
+              )}
               <button className="cta" type="submit" disabled={loading}>
                 {loading ? 'Bitte warten...' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
               </button>
@@ -748,7 +830,7 @@ function App() {
                     <p className="summary-url">{shortUrl}</p>
                     <p className="summary-meta">
                       {activeLink.label ? `${activeLink.label} - ` : ''}
-                      Ablaufdatum: {activeLink.expiresLabel} - counter: {activeLink.clickCount}
+                      Ablaufdatum: {activeLink.expiresLabel} - Aufrufe: {activeLink.clickCount}
                     </p>
                   </>
                 ) : (
@@ -837,7 +919,7 @@ function App() {
                       </div>
                       <div className="link-meta">
                         {link.label ? `${link.label} - ` : ''}
-                        Ablaufdatum: {link.expiresLabel} - counter: {link.clickCount}
+                        Ablaufdatum: {link.expiresLabel} - Aufrufe: {link.clickCount}
                       </div>
                     </div>
                   ))
