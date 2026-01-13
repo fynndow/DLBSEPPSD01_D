@@ -369,6 +369,37 @@
   gap: 0.9rem;
 }
 
+.links-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  gap: 0.5rem;
+  padding: 0.3rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filter-button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-button.active {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-strong);
+}
+
 .search-bar label {
   display: grid;
   gap: 0.5rem;

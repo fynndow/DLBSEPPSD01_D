@@ -39,6 +39,7 @@ const runtimeProtocol = typeof window !== 'undefined' ? window.location.protocol
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL || `${runtimeProtocol}//${runtimeHost}:3000`;
 const ITEMS_PER_PAGE = 3;
+type LinkFilter = 'active' | 'expired';
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -144,6 +145,7 @@ function App() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>('active');
 
   useEffect(() => {
     let isMounted = true;
@@ -210,6 +212,13 @@ function App() {
   }, [session?.access_token]);
 
   useEffect(() => {
+    if (linkFilter === 'expired') {
+      if (activeLinkId !== null) {
+        setActiveLinkId(null);
+      }
+      return;
+    }
+
     if (links.length === 0) {
       if (activeLinkId !== null) {
         setActiveLinkId(null);
@@ -218,12 +227,12 @@ function App() {
     }
 
     const active = links.filter(isActiveLink);
-    const preferredId = active[0]?.id ?? links[0].id;
+    const preferredId = active[0]?.id ?? links[0]?.id ?? null;
     const activeIds = new Set(active.map((link) => link.id));
     if (!activeLinkId || !activeIds.has(activeLinkId)) {
       setActiveLinkId(preferredId);
     }
-  }, [links, activeLinkId]);
+  }, [links, activeLinkId, linkFilter]);
 
   const isSignedIn = Boolean(session?.user);
   useEffect(() => {
@@ -472,17 +481,20 @@ function App() {
   const shortBaseUrl = import.meta.env.VITE_SHORT_BASE_URL || `${apiBaseUrl}/r`;
   const shortUrl = activeLink ? `${shortBaseUrl}/${activeLink.shortCode}` : '';
   const activeLinks = useMemo(() => links.filter(isActiveLink), [links]);
+  const expiredLinks = useMemo(() => links.filter((link) => !isActiveLink(link)), [links]);
   const expiredCount = links.length - activeLinks.length;
-  const filteredLinks = useMemo(
-    () => activeLinks.filter((link) => matchesSearch(link, searchTerm)),
-    [activeLinks, searchTerm]
-  );
+  const filteredLinks = useMemo(() => {
+    const source = linkFilter === 'expired' ? expiredLinks : activeLinks;
+    return source.filter((link) => matchesSearch(link, searchTerm));
+  }, [activeLinks, expiredLinks, linkFilter, searchTerm]);
   const totalPages = Math.max(1, Math.ceil(filteredLinks.length / ITEMS_PER_PAGE));
   const pageStart = (page - 1) * ITEMS_PER_PAGE;
   const pageLinks = filteredLinks.slice(pageStart, pageStart + ITEMS_PER_PAGE);
 
+  const showQr = linkFilter === 'active' && Boolean(activeLink) && isActiveLink(activeLink!);
+
   useEffect(() => {
-    if (!shortUrl) {
+    if (!shortUrl || !showQr) {
       setQrDataUrl('');
       return;
     }
@@ -506,11 +518,11 @@ function App() {
     return () => {
       isCurrent = false;
     };
-  }, [shortUrl]);
+  }, [shortUrl, showQr]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, linkFilter]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -824,23 +836,8 @@ function App() {
               </form>
               {linkMessage && <p className="status info">{linkMessage}</p>}
               <div className="link-summary">
-                <div className="summary-header">Aktiver Link</div>
-                {activeLink ? (
-                  <>
-                    <p className="summary-url">{shortUrl}</p>
-                    <p className="summary-meta">
-                      {activeLink.label ? `${activeLink.label} - ` : ''}
-                      Ablaufdatum: {activeLink.expiresLabel} - Aufrufe: {activeLink.clickCount}
-                    </p>
-                  </>
-                ) : (
-                  <p className="status info">Noch kein Link ausgewählt.</p>
-                )}
+                <div className="summary-header">Link-Übersicht:</div>
                 <div className="summary-stats">
-                  <div>
-                    <span>Gesamt</span>
-                    <strong>{links.length}</strong>
-                  </div>
                   <div>
                     <span>Aktiv</span>
                     <strong>{activeLinks.length}</strong>
@@ -849,12 +846,36 @@ function App() {
                     <span>Abgelaufen</span>
                     <strong>{expiredCount}</strong>
                   </div>
+                  <div>
+                    <span>Gesamt</span>
+                    <strong>{links.length}</strong>
+                  </div>
                 </div>
               </div>
             </article>
 
             <article className="card">
-              <h2>Letzte aktive Links</h2>
+              <div className="links-header">
+                <h2>Links</h2>
+                <div className="filter-toggle">
+                  <button
+                    type="button"
+                    className={linkFilter === 'active' ? 'filter-button active' : 'filter-button'}
+                    onClick={() => setLinkFilter('active')}
+                  >
+                    Aktiv
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      linkFilter === 'expired' ? 'filter-button active' : 'filter-button'
+                    }
+                    onClick={() => setLinkFilter('expired')}
+                  >
+                    Abgelaufen
+                  </button>
+                </div>
+              </div>
               {linksLoading && <p className="status info">Links werden geladen...</p>}
               {linksError && (
                 <p className="status error" role="alert">
@@ -874,7 +895,11 @@ function App() {
               </div>
               <div className="links-list">
                 {filteredLinks.length === 0 && !linksLoading ? (
-                  <p className="status info">Keine aktiven Links vorhanden.</p>
+                  <p className="status info">
+                    {linkFilter === 'expired'
+                      ? 'Keine abgelaufenen Links vorhanden.'
+                      : 'Keine aktiven Links vorhanden.'}
+                  </p>
                 ) : (
                   pageLinks.map((link) => (
                     <div
@@ -963,14 +988,14 @@ function App() {
                   {expiredCount} Link(s) sind abgelaufen und werden ausgeblendet.
                 </p>
               ) : null}
-              {activeLink ? (
+              {showQr ? (
                 <>
                   <div className="qr-box">
                     <p>QR-Code des ausgewählten links</p>
                     {qrDataUrl ? (
                       <img src={qrDataUrl} alt="QR Code" />
                     ) : (
-                      <span>{activeLink.shortCode}</span>
+                      <span>{activeLink?.shortCode}</span>
                     )}
                   </div>
                   <div className="share-actions">
