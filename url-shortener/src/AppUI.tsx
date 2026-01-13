@@ -470,7 +470,9 @@ function AppUI({
                 ) : null}
                 {expiredCount > 0 && !linksLoading ? (
                   <p className="status info">
-                    {expiredCount} Link(s) sind abgelaufen und werden ausgeblendet.
+                    {expiredCount === 1
+                      ? '1 Link ist abgelaufen und wird ausgeblendet.'
+                      : `${expiredCount} Links sind abgelaufen und werden ausgeblendet.`}
                   </p>
                 ) : null}
                 {showQr ? (

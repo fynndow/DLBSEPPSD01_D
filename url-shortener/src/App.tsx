@@ -611,13 +611,16 @@ function App() {
   }, [page, totalPages]);
 
   useEffect(() => {
+    if (linkFilter === 'expired') {
+      return;
+    }
     if (filteredLinks.length === 0) {
       return;
     }
     if (!activeLinkId || !filteredLinks.some((link) => link.id === activeLinkId)) {
       setActiveLinkId(filteredLinks[0].id);
     }
-  }, [filteredLinks, activeLinkId]);
+  }, [filteredLinks, activeLinkId, linkFilter]);
 
   // --- Share/copy actions ---
   const handleShare = async () => {
