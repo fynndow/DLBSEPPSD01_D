@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
+import AppUI from './AppUI';
 import { supabase } from './lib/supabaseClient';
 import './App.css';
 
-type Mode = 'login' | 'register';
-type View = 'dashboard' | 'profile';
+export type Mode = 'login' | 'register';
+export type View = 'dashboard' | 'profile';
 
-type LinkItem = {
+export type LinkItem = {
   id: string;
   shortCode: string;
   originalUrl: string;
@@ -34,13 +35,15 @@ const expiryOptions = [
   { value: 'never', label: 'Kein Ablaufdatum' },
 ];
 
+// Use runtime host/protocol so LAN IPs work without hardcoding .env values.
 const runtimeHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 const runtimeProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL || `${runtimeProtocol}//${runtimeHost}:3000`;
 const ITEMS_PER_PAGE = 3;
-type LinkFilter = 'active' | 'expired';
+export type LinkFilter = 'active' | 'expired';
 
+// --- Helper utilities ---
 function formatDate(value: string | null) {
   if (!value) {
     return 'kein Ablaufdatum';
@@ -108,6 +111,7 @@ function mapAuthErrorMessage(message: string) {
 }
 
 function App() {
+  // --- Auth form + session state ---
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -117,6 +121,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  // --- UI view + profile settings state ---
   const [view, setView] = useState<View>('dashboard');
   const [profileEmail, setProfileEmail] = useState('');
   const [profilePassword, setProfilePassword] = useState('');
@@ -126,6 +132,7 @@ function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [isAccountDeleteModalOpen, setIsAccountDeleteModalOpen] = useState(false);
 
+  // --- Link creation, list, and QR state ---
   const [targetUrl, setTargetUrl] = useState('');
   const [label, setLabel] = useState('');
   const [expiresIn, setExpiresIn] = useState(expiryOptions[0].value);
@@ -147,6 +154,7 @@ function App() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [linkFilter, setLinkFilter] = useState<LinkFilter>('active');
 
+  // --- Session bootstrap + auth listener ---
   useEffect(() => {
     let isMounted = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -165,12 +173,14 @@ function App() {
     };
   }, []);
 
+  // --- Profile defaults from session ---
   useEffect(() => {
     if (session?.user?.email) {
       setProfileEmail(session.user.email);
     }
   }, [session?.user?.email]);
 
+  // --- Fetch links for the signed-in user ---
   useEffect(() => {
     if (!session?.access_token) {
       setLinks([]);
@@ -211,6 +221,7 @@ function App() {
     fetchLinks();
   }, [session?.access_token]);
 
+  // --- Link selection sync for the active/expired toggle ---
   useEffect(() => {
     if (linkFilter === 'expired') {
       if (activeLinkId !== null) {
@@ -234,6 +245,7 @@ function App() {
     }
   }, [links, activeLinkId, linkFilter]);
 
+  // --- UI helpers ---
   const isSignedIn = Boolean(session?.user);
   useEffect(() => {
     if (!isSignedIn) {
@@ -255,6 +267,70 @@ function App() {
     setProfileMessage(null);
   };
 
+  // --- UI state handlers ---
+  const handleModeChange = (nextMode: Mode) => {
+    resetStatus();
+    setMode(nextMode);
+    setPasswordConfirm('');
+  };
+
+  const handleViewChange = (nextView: View) => {
+    setView(nextView);
+  };
+
+  const handleNameChange = (value: string) => {
+    setName(value);
+  };
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+  };
+
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+  };
+
+  const handlePasswordConfirmChange = (value: string) => {
+    setPasswordConfirm(value);
+  };
+
+  const handleTargetUrlChange = (value: string) => {
+    setTargetUrl(value);
+  };
+
+  const handleLabelChange = (value: string) => {
+    setLabel(value);
+  };
+
+  const handleExpiresInChange = (value: string) => {
+    setExpiresIn(value);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+  };
+
+  const handleSelectLink = (linkId: string) => {
+    setActiveLinkId(linkId);
+  };
+
+  const handleLinkFilterChange = (filter: LinkFilter) => {
+    setLinkFilter(filter);
+  };
+
+  const handleProfileEmailChange = (value: string) => {
+    setProfileEmail(value);
+  };
+
+  const handleProfilePasswordChange = (value: string) => {
+    setProfilePassword(value);
+  };
+
+  const handleProfilePasswordConfirmChange = (value: string) => {
+    setProfilePasswordConfirm(value);
+  };
+
+  // --- Auth actions ---
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     resetStatus();
@@ -329,6 +405,7 @@ function App() {
     setLoading(false);
   };
 
+  // --- Profile actions ---
   const handleUpdateEmail = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!profileEmail.trim()) {
@@ -413,6 +490,7 @@ function App() {
     }
   };
 
+  // --- Link creation ---
   const handleCreateLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLinkMessage(null);
@@ -477,6 +555,7 @@ function App() {
     }
   };
 
+  // --- Derived link data + filtering ---
   const activeLink = links.find((link) => link.id === activeLinkId);
   const shortBaseUrl = import.meta.env.VITE_SHORT_BASE_URL || `${apiBaseUrl}/r`;
   const shortUrl = activeLink ? `${shortBaseUrl}/${activeLink.shortCode}` : '';
@@ -493,6 +572,7 @@ function App() {
 
   const showQr = linkFilter === 'active' && Boolean(activeLink) && isActiveLink(activeLink!);
 
+  // --- QR generation ---
   useEffect(() => {
     if (!shortUrl || !showQr) {
       setQrDataUrl('');
@@ -539,6 +619,7 @@ function App() {
     }
   }, [filteredLinks, activeLinkId]);
 
+  // --- Share/copy actions ---
   const handleShare = async () => {
     if (!qrDataUrl) {
       setShareError('Kein QR-Code vorhanden.');
@@ -611,6 +692,7 @@ function App() {
     }
   };
 
+  // --- Link deletion ---
   const handleDeleteLink = async (linkId: string) => {
     if (!session?.access_token) {
       setDeleteError('Bitte zuerst einloggen.');
@@ -666,502 +748,99 @@ function App() {
     }
   };
 
+  const handlePrevPage = () => {
+    setPage((current) => Math.max(1, current - 1));
+  };
+
+  const handleNextPage = () => {
+    setPage((current) => Math.min(totalPages, current + 1));
+  };
+
+  const pendingDeleteUrl = pendingDeleteId
+    ? `${shortBaseUrl}/${links.find((link) => link.id === pendingDeleteId)?.shortCode ?? ''}`
+    : '';
+
   return (
-    <div className="app">
-      {!isSignedIn ? (
-        <main className="auth-layout">
-          <section className="auth-card">
-            <div className="auth-toggle">
-              <button
-                type="button"
-                className={mode === 'login' ? 'tab active' : 'tab'}
-                onClick={() => {
-                  resetStatus();
-                  setMode('login');
-                  setPasswordConfirm('');
-                }}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                className={mode === 'register' ? 'tab active' : 'tab'}
-                onClick={() => {
-                  resetStatus();
-                  setMode('register');
-                  setPasswordConfirm('');
-                }}
-              >
-                Registrieren
-              </button>
-            </div>
-
-            <div className="auth-copy">
-              <h1>{mode === 'login' ? 'Logge dich ein' : 'Registriere dich'}</h1>
-              <p>
-                {mode === 'login'
-                  ? 'Logge dich ein um deine Links zu kürzen!'
-                  : 'Registriere dich um deine Links zu kürzen!'}
-              </p>
-            </div>
-
-            <form className="auth-form" onSubmit={handleSubmit} noValidate>
-              {mode === 'register' && (
-                <label>
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Dein Name"
-                    required
-                  />
-                </label>
-              )}
-              <label>
-                <span>E-Mail</span>
-                <input
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="beispiel@mail.com"
-                  required
-                />
-              </label>
-              <label>
-                <span>Passwort</span>
-                <input
-                  type="password"
-                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="mind. 8 Zeichen"
-                  required
-                />
-              </label>
-              {mode === 'register' && (
-                <label>
-                  <span>Passwort bestätigen</span>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordConfirm}
-                    onChange={(event) => setPasswordConfirm(event.target.value)}
-                    placeholder="Passwort wiederholen"
-                    required
-                  />
-                </label>
-              )}
-              <button className="cta" type="submit" disabled={loading}>
-                {loading ? 'Bitte warten...' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
-              </button>
-            </form>
-
-            {error && (
-              <p className="status error" role="alert">
-                {error}
-              </p>
-            )}
-            {message && <p className="status success">{message}</p>}
-          </section>
-        </main>
-      ) : (
-        <main className="dashboard">
-          <header className="topbar">
-            <div className="topbar-left">
-              <button
-                className={view === 'dashboard' ? 'chip active' : 'chip'}
-                type="button"
-                onClick={() => setView('dashboard')}
-              >
-                Dashboard
-              </button>
-              <button
-                className={view === 'profile' ? 'chip active' : 'chip'}
-                type="button"
-                onClick={() => setView('profile')}
-              >
-                Profil
-              </button>
-            </div>
-            <div className="greeting">Hallo {userLabel}!</div>
-            <div className="topbar-right">
-              <button className="chip" type="button" onClick={handleSignOut}>
-                Abmelden
-              </button>
-            </div>
-          </header>
-
-          {view === 'dashboard' ? (
-            <section className="dashboard-grid">
-            <article className="card">
-              <h2>Verkürzen Sie hier Ihren Link</h2>
-              <form className="link-form" onSubmit={handleCreateLink}>
-                <label>
-                  <span>Ziel-URL</span>
-                  <input
-                    type="url"
-                    value={targetUrl}
-                    onChange={(event) => setTargetUrl(event.target.value)}
-                    placeholder="https://example.com"
-                    required
-                  />
-                </label>
-                <label>
-                  <span>Eigener Kurzname (nur für dich)</span>
-                  <input
-                    type="text"
-                    value={label}
-                    onChange={(event) => setLabel(event.target.value)}
-                    placeholder="Beispiel"
-                  />
-                </label>
-                <label>
-                  <span>Ablaufzeit</span>
-                  <select
-                    value={expiresIn}
-                    onChange={(event) => setExpiresIn(event.target.value)}
-                  >
-                    {expiryOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button className="cta" type="submit">
-                  Kurzlink erstellen
-                </button>
-              </form>
-              {linkMessage && <p className="status info">{linkMessage}</p>}
-              <div className="link-summary">
-                <div className="summary-header">Link-Übersicht:</div>
-                <div className="summary-stats">
-                  <div>
-                    <span>Aktiv</span>
-                    <strong>{activeLinks.length}</strong>
-                  </div>
-                  <div>
-                    <span>Abgelaufen</span>
-                    <strong>{expiredCount}</strong>
-                  </div>
-                  <div>
-                    <span>Gesamt</span>
-                    <strong>{links.length}</strong>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article className="card">
-              <div className="links-header">
-                <h2>Links</h2>
-                <div className="filter-toggle">
-                  <button
-                    type="button"
-                    className={linkFilter === 'active' ? 'filter-button active' : 'filter-button'}
-                    onClick={() => setLinkFilter('active')}
-                  >
-                    Aktiv
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      linkFilter === 'expired' ? 'filter-button active' : 'filter-button'
-                    }
-                    onClick={() => setLinkFilter('expired')}
-                  >
-                    Abgelaufen
-                  </button>
-                </div>
-              </div>
-              {linksLoading && <p className="status info">Links werden geladen...</p>}
-              {linksError && (
-                <p className="status error" role="alert">
-                  {linksError}
-                </p>
-              )}
-              <div className="search-bar">
-                <label>
-                  <span>Suche nach Kurzname</span>
-                  <input
-                    type="search"
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="z.B. kampagne-jan"
-                  />
-                </label>
-              </div>
-              <div className="links-list">
-                {filteredLinks.length === 0 && !linksLoading ? (
-                  <p className="status info">
-                    {linkFilter === 'expired'
-                      ? 'Keine abgelaufenen Links vorhanden.'
-                      : 'Keine aktiven Links vorhanden.'}
-                  </p>
-                ) : (
-                  pageLinks.map((link) => (
-                    <div
-                      key={link.id}
-                      className={link.id === activeLinkId ? 'link-row active' : 'link-row'}
-                      onClick={() => setActiveLinkId(link.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setActiveLinkId(link.id);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="link-header">
-                        <div className="link-text">
-                          {shortBaseUrl}/{link.shortCode}
-                        </div>
-                        <div className="link-actions">
-                          <button
-                            type="button"
-                            className="copy-inline"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleCopyLink(link.shortCode);
-                            }}
-                          >
-                            Kopieren
-                          </button>
-                          <button
-                            type="button"
-                            className="delete-inline"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openDeleteModal(link.id);
-                            }}
-                          >
-                          Löschen
-                          </button>
-                        </div>
-                      </div>
-                      <div className="link-meta">
-                        {link.label ? `${link.label} - ` : ''}
-                        Ablaufdatum: {link.expiresLabel} - Aufrufe: {link.clickCount}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              {copyMessage && <p className="status success">{copyMessage}</p>}
-              {copyError && (
-                <p className="status error" role="alert">
-                  {copyError}
-                </p>
-              )}
-              {deleteMessage && <p className="status success">{deleteMessage}</p>}
-              {deleteError && (
-                <p className="status error" role="alert">
-                  {deleteError}
-                </p>
-              )}
-              {filteredLinks.length > ITEMS_PER_PAGE ? (
-                <div className="pagination">
-                  <button
-                    type="button"
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={page === 1}
-                  >
-                    Zurück
-                  </button>
-                  <span>
-                    Seite {page} von {totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    disabled={page === totalPages}
-                  >
-                    Weiter
-                  </button>
-                </div>
-              ) : null}
-              {expiredCount > 0 && !linksLoading ? (
-                <p className="status info">
-                  {expiredCount} Link(s) sind abgelaufen und werden ausgeblendet.
-                </p>
-              ) : null}
-              {showQr ? (
-                <>
-                  <div className="qr-box">
-                    <p>QR-Code des ausgewählten links</p>
-                    {qrDataUrl ? (
-                      <img src={qrDataUrl} alt="QR Code" />
-                    ) : (
-                      <span>{activeLink?.shortCode}</span>
-                    )}
-                  </div>
-                  <div className="share-actions">
-                    <button
-                      className="share-button"
-                      type="button"
-                      onClick={handleShare}
-                      disabled={!qrDataUrl}
-                    >
-                      QR-Code teilen
-                    </button>
-                    {shareMessage && <p className="status success">{shareMessage}</p>}
-                    {shareError && (
-                      <p className="status error" role="alert">
-                        {shareError}
-                      </p>
-                    )}
-                  </div>
-                </>
-              ) : null}
-            </article>
-          </section>
-          ) : (
-            <section className="profile-grid">
-              <article className="card">
-                <h2>Profil-Einstellungen</h2>
-                <p className="profile-note">
-                  Verwalte deine Login-Daten und dein Konto.
-                </p>
-                <div className="profile-section">
-                  <h3>E-Mail ändern</h3>
-                  <form className="profile-form" onSubmit={handleUpdateEmail}>
-                    <label>
-                      <span>Neue E-Mail</span>
-                      <input
-                        type="email"
-                        autoComplete="email"
-                        value={profileEmail}
-                        onChange={(event) => setProfileEmail(event.target.value)}
-                        placeholder="name@mail.com"
-                        required
-                      />
-                    </label>
-                    <button className="profile-button" type="submit" disabled={profileLoading}>
-                      E-Mail speichern
-                    </button>
-                  </form>
-                </div>
-
-                <div className="profile-section">
-                  <h3>Passwort ändern</h3>
-                  <form className="profile-form" onSubmit={handleUpdatePassword}>
-                    <label>
-                      <span>Neues Passwort</span>
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={profilePassword}
-                        onChange={(event) => setProfilePassword(event.target.value)}
-                        placeholder="mind. 8 Zeichen"
-                        required
-                      />
-                    </label>
-                    <label>
-                      <span>Passwort bestätigen</span>
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={profilePasswordConfirm}
-                        onChange={(event) => setProfilePasswordConfirm(event.target.value)}
-                        placeholder="Passwort wiederholen"
-                        required
-                      />
-                    </label>
-                    <button className="profile-button" type="submit" disabled={profileLoading}>
-                      Passwort speichern
-                    </button>
-                  </form>
-                </div>
-
-                <div className="profile-section danger-zone">
-                  <h3>Konto löschen</h3>
-                  <p>
-                    Dein Konto und alle Links werden dauerhaft entfernt.
-                  </p>
-                  <button
-                    className="profile-button danger"
-                    type="button"
-                    onClick={openAccountDeleteModal}
-                    disabled={profileLoading}
-                  >
-                    Konto löschen
-                  </button>
-                </div>
-
-                {profileMessage && <p className="status success">{profileMessage}</p>}
-                {profileError && (
-                  <p className="status error" role="alert">
-                    {profileError}
-                  </p>
-                )}
-              </article>
-            </section>
-          )}
-        </main>
-      )}
-      {isDeleteModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeDeleteModal}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="delete-modal-title">Link wirklich löschen?</h3>
-            <p>Dieser Schritt kann nicht rückgängig gemacht werden.</p>
-            <p className="modal-link">
-              {pendingDeleteId
-                ? `${shortBaseUrl}/${
-                    links.find((link) => link.id === pendingDeleteId)?.shortCode ?? ''
-                  }`
-                : ''}
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="modal-button ghost" onClick={closeDeleteModal}>
-                Abbrechen
-              </button>
-              <button type="button" className="modal-button danger" onClick={confirmDelete}>
-                Löschen
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {isAccountDeleteModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeAccountDeleteModal}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="account-delete-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="account-delete-title">Konto wirklich löschen?</h3>
-            <p>Alle deine Links werden entfernt. Dieser Schritt ist endgültig.</p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-button ghost"
-                onClick={closeAccountDeleteModal}
-              >
-                Abbrechen
-              </button>
-              <button
-                type="button"
-                className="modal-button danger"
-                onClick={handleDeleteAccount}
-              >
-                Konto löschen
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
+    <AppUI
+      isSignedIn={isSignedIn}
+      mode={mode}
+      view={view}
+      userLabel={userLabel}
+      loading={loading}
+      error={error}
+      message={message}
+      name={name}
+      email={email}
+      password={password}
+      passwordConfirm={passwordConfirm}
+      onModeChange={handleModeChange}
+      onNameChange={handleNameChange}
+      onEmailChange={handleEmailChange}
+      onPasswordChange={handlePasswordChange}
+      onPasswordConfirmChange={handlePasswordConfirmChange}
+      onSubmitAuth={handleSubmit}
+      onViewChange={handleViewChange}
+      onSignOut={handleSignOut}
+      targetUrl={targetUrl}
+      label={label}
+      expiresIn={expiresIn}
+      expiryOptions={expiryOptions}
+      onTargetUrlChange={handleTargetUrlChange}
+      onLabelChange={handleLabelChange}
+      onExpiresInChange={handleExpiresInChange}
+      onCreateLink={handleCreateLink}
+      linkMessage={linkMessage}
+      activeLinksCount={activeLinks.length}
+      expiredCount={expiredCount}
+      totalLinksCount={links.length}
+      linkFilter={linkFilter}
+      onLinkFilterChange={handleLinkFilterChange}
+      linksLoading={linksLoading}
+      linksError={linksError}
+      searchTerm={searchTerm}
+      onSearchChange={handleSearchChange}
+      filteredLinksCount={filteredLinks.length}
+      pageLinks={pageLinks}
+      activeLinkId={activeLinkId}
+      onSelectLink={handleSelectLink}
+      shortBaseUrl={shortBaseUrl}
+      onCopyLink={handleCopyLink}
+      copyMessage={copyMessage}
+      copyError={copyError}
+      deleteMessage={deleteMessage}
+      deleteError={deleteError}
+      page={page}
+      totalPages={totalPages}
+      itemsPerPage={ITEMS_PER_PAGE}
+      onPrevPage={handlePrevPage}
+      onNextPage={handleNextPage}
+      showQr={showQr}
+      qrDataUrl={qrDataUrl}
+      activeLinkShortCode={activeLink?.shortCode ?? null}
+      onShareQr={handleShare}
+      shareMessage={shareMessage}
+      shareError={shareError}
+      isDeleteModalOpen={isDeleteModalOpen}
+      pendingDeleteUrl={pendingDeleteUrl}
+      onOpenDeleteModal={openDeleteModal}
+      onCloseDeleteModal={closeDeleteModal}
+      onConfirmDelete={confirmDelete}
+      profileEmail={profileEmail}
+      profilePassword={profilePassword}
+      profilePasswordConfirm={profilePasswordConfirm}
+      profileLoading={profileLoading}
+      profileMessage={profileMessage}
+      profileError={profileError}
+      onProfileEmailChange={handleProfileEmailChange}
+      onProfilePasswordChange={handleProfilePasswordChange}
+      onProfilePasswordConfirmChange={handleProfilePasswordConfirmChange}
+      onUpdateEmail={handleUpdateEmail}
+      onUpdatePassword={handleUpdatePassword}
+      isAccountDeleteModalOpen={isAccountDeleteModalOpen}
+      onOpenAccountDeleteModal={openAccountDeleteModal}
+      onCloseAccountDeleteModal={closeAccountDeleteModal}
+      onDeleteAccount={handleDeleteAccount}
+    />
   );
 }
 
