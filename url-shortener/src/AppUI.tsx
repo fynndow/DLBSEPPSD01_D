@@ -170,6 +170,7 @@ function AppUI({
   return (
     <div className="app">
       {!isSignedIn ? (
+        /* Auth-Ansicht */
         <main className="auth-layout">
           <section className="auth-card">
             <div className="auth-toggle">
@@ -260,7 +261,9 @@ function AppUI({
           </section>
         </main>
       ) : (
+        /* Dashboard/Profil-Ansicht */
         <main className="dashboard">
+          {/* Topbar */}
           <header className="topbar">
             <div className="topbar-left">
               <button
@@ -287,7 +290,9 @@ function AppUI({
           </header>
 
           {view === 'dashboard' ? (
+            /* Dashboard-Inhalt */
             <section className="dashboard-grid">
+              {/* Link-Formular + Übersicht */}
               <article className="card">
                 <h2>Verkürzen Sie hier Ihren Link</h2>
                 <form className="link-form" onSubmit={onCreateLink}>
@@ -347,6 +352,7 @@ function AppUI({
                 </div>
               </article>
 
+              {/* Link-Liste + QR */}
               <article className="card">
                 <div className="links-header">
                   <h2>Links</h2>
@@ -476,6 +482,7 @@ function AppUI({
                   </p>
                 ) : null}
                 {showQr ? (
+                  /* QR-Bereich */
                   <>
                     <div className="qr-box">
                       <p>QR-Code des ausgewählten links</p>
@@ -505,6 +512,7 @@ function AppUI({
               </article>
             </section>
           ) : (
+            /* Profil-Einstellungen */
             <section className="profile-grid">
               <article className="card">
                 <h2>Profil-Einstellungen</h2>
@@ -585,6 +593,7 @@ function AppUI({
         </main>
       )}
       {isDeleteModalOpen ? (
+        /* Link-Löschbestätigung */
         <div className="modal-backdrop" role="presentation" onClick={onCloseDeleteModal}>
           <div
             className="modal"
@@ -608,6 +617,7 @@ function AppUI({
         </div>
       ) : null}
       {isAccountDeleteModalOpen ? (
+        /* Konto-Löschbestätigung */
         <div className="modal-backdrop" role="presentation" onClick={onCloseAccountDeleteModal}>
           <div
             className="modal"
